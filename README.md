@@ -1,4 +1,4 @@
-# Mandi Market
+# Online Market
 
 A district-wide, multi-shop marketplace: customers browse every shop in one place, order from a
 single shop at a time, the shop owner packs it, and a delivery partner picks up and delivers it —

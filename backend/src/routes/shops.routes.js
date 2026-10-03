@@ -71,16 +71,18 @@ router.patch('/mine/detail', requireAuth, requireRole('shop_owner'), (req, res) 
   const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
   if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
 
-  const { description, address, category, upi_id, upi_payee_name } = req.body;
+  const { description, address, category, upi_id, upi_payee_name, latitude, longitude } = req.body;
   db.prepare(
     `UPDATE shops SET
       description = COALESCE(?, description),
       address = COALESCE(?, address),
       category = COALESCE(?, category),
       upi_id = COALESCE(?, upi_id),
-      upi_payee_name = COALESCE(?, upi_payee_name)
+      upi_payee_name = COALESCE(?, upi_payee_name),
+      latitude = COALESCE(?, latitude),
+      longitude = COALESCE(?, longitude)
      WHERE id = ?`
-  ).run(description ?? null, address ?? null, category ?? null, upi_id ?? null, upi_payee_name ?? null, shop.id);
+  ).run(description ?? null, address ?? null, category ?? null, upi_id ?? null, upi_payee_name ?? null, latitude ?? null, longitude ?? null, shop.id);
 
   res.json({ shop: db.prepare('SELECT * FROM shops WHERE id = ?').get(shop.id) });
 });

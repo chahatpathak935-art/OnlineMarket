@@ -1,9 +1,9 @@
-
 import React, { useEffect, useState } from 'react';
 import api from '../../api.js';
 import { getSocket } from '../../socket.js';
 import StatusBadge from '../../components/StatusBadge.jsx';
 import { EmptyState, ErrorBanner } from '../../components/Feedback.jsx';
+import { getCurrentPosition } from '../../utils/geo.js';
 
 export default function ShopDashboard() {
   const [orders, setOrders] = useState([]);
@@ -16,6 +16,12 @@ export default function ShopDashboard() {
   const [upiError, setUpiError] = useState('');
   const [savingUpi, setSavingUpi] = useState(false);
   const [upiSaved, setUpiSaved] = useState(false);
+
+  const [shopLat, setShopLat] = useState(null);
+  const [shopLng, setShopLng] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [locationMsg, setLocationMsg] = useState('');
+  const [locationError, setLocationError] = useState('');
 
   useEffect(() => {
     fetchOrders();
@@ -47,6 +53,8 @@ export default function ShopDashboard() {
       const res = await api.get('/shops/mine/detail');
       setUpiId(res.data.shop.upi_id || '');
       setUpiPayeeName(res.data.shop.upi_payee_name || '');
+      setShopLat(res.data.shop.latitude);
+      setShopLng(res.data.shop.longitude);
     } catch (err) {
       // non-fatal, dashboard still works without this
     }
@@ -64,6 +72,23 @@ export default function ShopDashboard() {
       setUpiError(err.message);
     } finally {
       setSavingUpi(false);
+    }
+  }
+
+  async function useMyLocationForShop() {
+    setLocationError('');
+    setLocationMsg('');
+    setLocating(true);
+    try {
+      const { latitude, longitude } = await getCurrentPosition();
+      await api.patch('/shops/mine/detail', { latitude, longitude });
+      setShopLat(latitude);
+      setShopLng(longitude);
+      setLocationMsg('Shop location saved.');
+    } catch (err) {
+      setLocationError(err.message);
+    } finally {
+      setLocating(false);
     }
   }
 
@@ -85,7 +110,7 @@ export default function ShopDashboard() {
       <h1 className="font-display text-3xl mb-1">Incoming orders</h1>
       <p className="text-ink/60 mb-6">New orders arrive here the moment a customer checks out.</p>
 
-      <form onSubmit={saveUpi} className="card space-y-3 mb-8">
+      <form onSubmit={saveUpi} className="card space-y-3 mb-6">
         <h2 className="font-display text-xl">Payment settings</h2>
         <p className="text-sm text-ink/60">Add your UPI ID so customers can pay you directly for online orders.</p>
         <ErrorBanner message={upiError} />
@@ -102,6 +127,21 @@ export default function ShopDashboard() {
           {savingUpi ? 'Saving…' : 'Save payment details'}
         </button>
       </form>
+
+      <div className="card space-y-3 mb-8">
+        <h2 className="font-display text-xl">Shop location</h2>
+        <p className="text-sm text-ink/60">Set your shop's exact location so delivery partners can find you precisely.</p>
+        <ErrorBanner message={locationError} />
+        {locationMsg && <p className="text-sm text-leaf">{locationMsg}</p>}
+        {shopLat && shopLng ? (
+          <p className="text-sm text-ink/70">Saved location: {Number(shopLat).toFixed(5)}, {Number(shopLng).toFixed(5)}</p>
+        ) : (
+          <p className="text-sm text-ink/50">No location set yet.</p>
+        )}
+        <button type="button" className="btn-outline" disabled={locating} onClick={useMyLocationForShop}>
+          {locating ? 'Getting location…' : 'Use my current location'}
+        </button>
+      </div>
 
       <ErrorBanner message={error} />
 

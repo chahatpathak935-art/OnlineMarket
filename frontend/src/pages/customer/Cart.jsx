@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../api.js';
 import { useCart } from '../../context/CartContext.jsx';
 import { EmptyState, ErrorBanner } from '../../components/Feedback.jsx';
+import { getCurrentPosition, reverseGeocode } from '../../utils/geo.js';
 
 const DELIVERY_FEE = 30; // mirrors backend default; shown for clarity before order confirms exact figure
 
@@ -10,10 +11,27 @@ export default function Cart() {
   const { cart, updateQuantity, clearCart, total } = useCart();
   const navigate = useNavigate();
   const [address, setAddress] = useState('');
+  const [coords, setCoords] = useState(null);
+  const [locating, setLocating] = useState(false);
   const [note, setNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cod');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  async function useMyLocation() {
+    setError('');
+    setLocating(true);
+    try {
+      const { latitude, longitude } = await getCurrentPosition();
+      setCoords({ latitude, longitude });
+      const fullAddress = await reverseGeocode(latitude, longitude);
+      if (fullAddress) setAddress(fullAddress);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLocating(false);
+    }
+  }
 
   async function placeOrder() {
     setError('');
@@ -27,6 +45,8 @@ export default function Cart() {
         shop_id: cart.shopId,
         items: cart.items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
         delivery_address: address,
+        delivery_latitude: coords?.latitude,
+        delivery_longitude: coords?.longitude,
         customer_note: note || undefined,
         payment_method: paymentMethod,
       });
@@ -95,8 +115,14 @@ export default function Cart() {
       <div className="card mt-4 space-y-4">
         <ErrorBanner message={error} />
         <div>
-          <label className="label">Delivery address</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="label !mb-0">Delivery address</label>
+            <button type="button" className="text-xs text-brick font-medium" disabled={locating} onClick={useMyLocation}>
+              {locating ? 'Locating…' : 'Use my current location'}
+            </button>
+          </div>
           <textarea className="input" rows={3} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="House no., street, landmark, area" />
+          {coords && <p className="text-xs text-leaf mt-1">Location attached ✓ (helps the delivery partner find you)</p>}
         </div>
         <div>
           <label className="label">Note for the shop (optional)</label>

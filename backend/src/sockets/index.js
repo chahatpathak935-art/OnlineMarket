@@ -34,6 +34,24 @@ function initSockets(server, corsOrigin) {
         socket.emit('auth_error', 'Invalid token');
       }
     });
+
+    // Delivery partner's phone sends periodic GPS updates while an order is assigned/picked up.
+    socket.on('delivery_location_update', ({ orderId, latitude, longitude }) => {
+      const user = socket.data.user;
+      if (!user || user.role !== 'delivery_boy' || !orderId || latitude == null || longitude == null) return;
+
+      const db = require('../db/db');
+      const order = db
+        .prepare("SELECT * FROM orders WHERE id = ? AND delivery_boy_id = ? AND status IN ('assigned','picked_up')")
+        .get(orderId, user.id);
+      if (!order) return; // ignore updates for orders that aren't actually theirs/active
+
+      db.prepare('UPDATE orders SET delivery_boy_lat = ?, delivery_boy_lng = ? WHERE id = ?').run(latitude, longitude, orderId);
+
+      const payload = { orderId, latitude, longitude };
+      io.to(`user_${order.customer_id}`).emit('delivery_location', payload);
+      io.to(`shop_${order.shop_id}`).emit('delivery_location', payload);
+    });
   });
 
   return io;

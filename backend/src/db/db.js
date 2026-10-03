@@ -102,6 +102,8 @@ addColumnIfMissing('shops', 'upi_id', 'TEXT');
 addColumnIfMissing('shops', 'upi_payee_name', 'TEXT');
 addColumnIfMissing('orders', 'payment_method', "TEXT NOT NULL DEFAULT 'cod'");
 addColumnIfMissing('orders', 'payment_status', "TEXT NOT NULL DEFAULT 'pending'");
+addColumnIfMissing('orders', 'delivery_boy_lat', 'REAL');
+addColumnIfMissing('orders', 'delivery_boy_lng', 'REAL');
 
 // --- OTP codes (registration, login, password reset) ---
 db.exec(`

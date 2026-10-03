@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../../api.js';
 import { getSocket } from '../../socket.js';
 import StatusBadge from '../../components/StatusBadge.jsx';
@@ -25,6 +25,32 @@ export default function DeliveryDashboard() {
       };
     }
   }, []);
+
+    const lastEmitRef = useRef(0);
+
+  useEffect(() => {
+    const activeOrders = mine.filter((o) => o.status === 'assigned' || o.status === 'picked_up');
+    if (activeOrders.length === 0 || !navigator.geolocation) return;
+
+    const socket = getSocket();
+    if (!socket) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - lastEmitRef.current < 8000) return; // throttle to once every 8s
+        lastEmitRef.current = now;
+        const { latitude, longitude } = pos.coords;
+        activeOrders.forEach((o) => {
+          socket.emit('delivery_location_update', { orderId: o.id, latitude, longitude });
+        });
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [mine]);
 
   async function fetchAll() {
     try {
@@ -85,7 +111,7 @@ export default function DeliveryDashboard() {
                   </div>
                   <StatusBadge status={o.status} />
                 </div>
-                                  <div className="flex items-center justify-between mt-4">
+                                          <div className="flex items-center justify-between mt-4">
                     <span className="text-sm text-ink/60">Earning on this delivery: ₹{o.delivery_fee}</span>
                     <button className="btn-accent !py-1.5" disabled={busyId === o.id} onClick={() => advance(o)}>
                       {busyId === o.id
@@ -101,6 +127,8 @@ export default function DeliveryDashboard() {
                       shopLng={o.shop_longitude}
                       customerLat={o.delivery_latitude}
                       customerLng={o.delivery_longitude}
+                      deliveryLat={o.delivery_boy_lat}
+                      deliveryLng={o.delivery_boy_lng}
                       height={200}
                     />
                   </div>

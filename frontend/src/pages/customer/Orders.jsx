@@ -9,18 +9,28 @@ export default function Orders() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+    useEffect(() => {
     fetchOrders();
 
     const socket = getSocket();
     if (socket) {
       socket.on('order_status_changed', handleUpdate);
-      return () => socket.off('order_status_changed', handleUpdate);
+      socket.on('delivery_location', handleLocation);
+      return () => {
+        socket.off('order_status_changed', handleUpdate);
+        socket.off('delivery_location', handleLocation);
+      };
     }
   }, []);
 
   function handleUpdate(updated) {
     setOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
+  }
+
+  function handleLocation({ orderId, latitude, longitude }) {
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, delivery_boy_lat: latitude, delivery_boy_lng: longitude } : o))
+    );
   }
 
   async function fetchOrders() {
@@ -73,13 +83,15 @@ export default function Orders() {
                       </button>
                     )}
                   </div>
-                  {o.status !== 'cancelled' && (
+                                   {o.status !== 'cancelled' && (
                     <div className="mt-3">
                       <OrderMap
                         shopLat={o.shop_latitude}
                         shopLng={o.shop_longitude}
                         customerLat={o.delivery_latitude}
                         customerLng={o.delivery_longitude}
+                        deliveryLat={o.delivery_boy_lat}
+                        deliveryLng={o.delivery_boy_lng}
                         height={200}
                       />
                     </div>

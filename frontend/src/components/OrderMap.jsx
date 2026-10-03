@@ -16,11 +16,19 @@ const customerIcon = new L.Icon({
   iconSize: [31, 50],
   iconAnchor: [15, 50],
 });
+// Delivery partner's live position — a small pulsing dot so it's visually distinct from the fixed pins.
+const deliveryIcon = L.divIcon({
+  className: '',
+  html: '<div style="background:#E2A63B;width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 0 8px rgba(226,166,59,0.9);"></div>',
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
 
-export default function OrderMap({ shopLat, shopLng, customerLat, customerLng, height = 260 }) {
+export default function OrderMap({ shopLat, shopLng, customerLat, customerLng, deliveryLat, deliveryLng, height = 260 }) {
   const points = [];
   if (shopLat && shopLng) points.push([shopLat, shopLng]);
   if (customerLat && customerLng) points.push([customerLat, customerLng]);
+  if (deliveryLat && deliveryLng) points.push([deliveryLat, deliveryLng]);
 
   if (points.length === 0) {
     return (
@@ -47,6 +55,11 @@ export default function OrderMap({ shopLat, shopLng, customerLat, customerLng, h
         {customerLat && customerLng && (
           <Marker position={[customerLat, customerLng]} icon={customerIcon}>
             <Popup>Delivery address</Popup>
+          </Marker>
+        )}
+        {deliveryLat && deliveryLng && (
+          <Marker position={[deliveryLat, deliveryLng]} icon={deliveryIcon}>
+            <Popup>Delivery partner (live)</Popup>
           </Marker>
         )}
       </MapContainer>

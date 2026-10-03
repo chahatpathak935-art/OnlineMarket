@@ -11,6 +11,7 @@ import ShopList from './pages/customer/ShopList.jsx';
 import ShopDetail from './pages/customer/ShopDetail.jsx';
 import Cart from './pages/customer/Cart.jsx';
 import Orders from './pages/customer/Orders.jsx';
+import Payment from './pages/customer/Payment.jsx';
 
 import ShopDashboard from './pages/shopowner/ShopDashboard.jsx';
 import Inventory from './pages/shopowner/Inventory.jsx';
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/shops/:id" element={<ShopDetail />} />
           <Route path="/cart" element={<ProtectedRoute roles={['customer']}><Cart /></ProtectedRoute>} />
           <Route path="/orders" element={<ProtectedRoute roles={['customer']}><Orders /></ProtectedRoute>} />
+          <Route path="/payment/:orderId" element={<ProtectedRoute roles={['customer']}><Payment /></ProtectedRoute>} />
 
           <Route path="/shop/dashboard" element={<ProtectedRoute roles={['shop_owner']}><ShopDashboard /></ProtectedRoute>} />
           <Route path="/shop/inventory" element={<ProtectedRoute roles={['shop_owner']}><Inventory /></ProtectedRoute>} />

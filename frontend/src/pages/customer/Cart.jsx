@@ -11,6 +11,7 @@ export default function Cart() {
   const navigate = useNavigate();
   const [address, setAddress] = useState('');
   const [note, setNote] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cod');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -22,14 +23,19 @@ export default function Cart() {
     }
     setBusy(true);
     try {
-      await api.post('/orders', {
+      const res = await api.post('/orders', {
         shop_id: cart.shopId,
         items: cart.items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
         delivery_address: address,
         customer_note: note || undefined,
+        payment_method: paymentMethod,
       });
       clearCart();
-      navigate('/orders');
+      if (paymentMethod === 'online') {
+        navigate(`/payment/${res.data.order.id}`);
+      } else {
+        navigate('/orders');
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -95,6 +101,19 @@ export default function Cart() {
         <div>
           <label className="label">Note for the shop (optional)</label>
           <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Payment method</label>
+          <div className="grid grid-cols-1 gap-2">
+            <label className={`flex items-center gap-3 border rounded px-3 py-2.5 cursor-pointer ${paymentMethod === 'cod' ? 'border-marigold bg-marigold-light/40' : 'border-ledger'}`}>
+              <input type="radio" name="paymentMethod" value="cod" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} />
+              <span className="text-sm font-medium">Cash on Delivery</span>
+            </label>
+            <label className={`flex items-center gap-3 border rounded px-3 py-2.5 cursor-pointer ${paymentMethod === 'online' ? 'border-marigold bg-marigold-light/40' : 'border-ledger'}`}>
+              <input type="radio" name="paymentMethod" value="online" checked={paymentMethod === 'online'} onChange={() => setPaymentMethod('online')} />
+              <span className="text-sm font-medium">Online Payment (UPI)</span>
+            </label>
+          </div>
         </div>
         <button className="btn-primary w-full" disabled={busy} onClick={placeOrder}>
           {busy ? 'Placing order…' : `Place order · ₹${total + DELIVERY_FEE}`}

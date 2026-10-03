@@ -27,14 +27,20 @@ function safeEmit(event, room, payload) {
 
 // ---------- Customer: place an order (single shop per order) ----------
 router.post('/', requireAuth, requireRole('customer'), (req, res) => {
-  const { shop_id, items, delivery_address, delivery_latitude, delivery_longitude, customer_note } = req.body;
+  const { shop_id, items, delivery_address, delivery_latitude, delivery_longitude, customer_note, payment_method } = req.body;
 
   if (!shop_id || !Array.isArray(items) || items.length === 0 || !delivery_address) {
     return res.status(400).json({ error: 'shop_id, items[] and delivery_address are required' });
   }
 
+  const method = payment_method === 'online' ? 'online' : 'cod';
+
   const shop = db.prepare('SELECT * FROM shops WHERE id = ? AND is_active = 1').get(shop_id);
   if (!shop) return res.status(404).json({ error: 'Shop not found or not active' });
+
+  if (method === 'online' && !shop.upi_id) {
+    return res.status(400).json({ error: 'This shop has not set up online payment yet. Please choose Cash on Delivery.' });
+  }
 
   const placeOrder = db.transaction(() => {
     let itemsTotal = 0;
@@ -58,10 +64,10 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
     const orderInfo = db
       .prepare(
         `INSERT INTO orders
-          (customer_id, shop_id, status, items_total, delivery_fee, grand_total, delivery_address, delivery_latitude, delivery_longitude, customer_note)
-         VALUES (?, ?, 'placed', ?, ?, ?, ?, ?, ?, ?)`
+          (customer_id, shop_id, status, items_total, delivery_fee, grand_total, delivery_address, delivery_latitude, delivery_longitude, customer_note, payment_method, payment_status)
+         VALUES (?, ?, 'placed', ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
       )
-      .run(req.user.id, shop_id, itemsTotal, DELIVERY_FEE, grandTotal, delivery_address, delivery_latitude || null, delivery_longitude || null, customer_note || null);
+      .run(req.user.id, shop_id, itemsTotal, DELIVERY_FEE, grandTotal, delivery_address, delivery_latitude || null, delivery_longitude || null, customer_note || null, method);
 
     const orderId = orderInfo.lastInsertRowid;
 
@@ -85,7 +91,7 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
 
   const order = orderWithItems(orderId);
   safeEmit('new_order', `shop_${shop_id}`, order);
-  res.status(201).json({ order });
+  res.status(201).json({ order, shop_upi_id: shop.upi_id, shop_upi_payee_name: shop.upi_payee_name || shop.name });
 });
 
 // ---------- Customer: my orders / cancel while still unaccepted ----------
@@ -97,6 +103,38 @@ router.get('/mine', requireAuth, requireRole('customer'), (req, res) => {
     )
     .all(req.user.id);
   res.json({ orders });
+});
+
+router.patch('/:id/mark-paid', requireAuth, requireRole('customer'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND customer_id = ?').get(req.params.id, req.user.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.payment_method !== 'online') {
+    return res.status(400).json({ error: 'This order is Cash on Delivery, no online payment to confirm' });
+  }
+  if (order.payment_status !== 'pending') {
+    return res.status(400).json({ error: `Payment is already marked as ${order.payment_status}` });
+  }
+
+  db.prepare("UPDATE orders SET payment_status = 'claimed_paid', updated_at = datetime('now') WHERE id = ?").run(order.id);
+  const updated = orderWithItems(order.id);
+  safeEmit('order_status_changed', `shop_${order.shop_id}`, updated);
+  res.json({ order: updated });
+});
+
+router.patch('/:id/confirm-payment', requireAuth, requireRole('shop_owner'), (req, res) => {
+  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+  if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
+  if (!order) return res.status(404).json({ error: 'Order not found in your shop' });
+  if (order.payment_status !== 'claimed_paid') {
+    return res.status(400).json({ error: 'Customer has not claimed payment for this order yet' });
+  }
+
+  db.prepare("UPDATE orders SET payment_status = 'confirmed', updated_at = datetime('now') WHERE id = ?").run(order.id);
+  const updated = orderWithItems(order.id);
+  safeEmit('order_status_changed', `user_${order.customer_id}`, updated);
+  res.json({ order: updated });
 });
 
 router.patch('/:id/cancel', requireAuth, requireRole('customer'), (req, res) => {
@@ -187,6 +225,13 @@ router.patch('/:id/accept', requireAuth, requireRole('shop_owner'), (req, res) =
 });
 
 router.patch('/:id/pack', requireAuth, requireRole('shop_owner'), (req, res) => {
+  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+  if (shop) {
+    const order = db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
+    if (order && order.payment_method === 'online' && order.payment_status !== 'confirmed') {
+      return res.status(400).json({ error: 'Please confirm you have received the UPI payment before packing this order' });
+    }
+  }
   // Once packed, the order becomes visible to the delivery pool for pickup.
   shopOwnerTransition(req, res, ['accepted'], 'packed', { name: 'order_available_for_pickup', room: 'delivery_pool' });
 });

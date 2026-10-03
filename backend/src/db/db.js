@@ -89,5 +89,18 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_delivery ON orders(delivery_boy_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 `);
+// --- Lightweight migrations for columns added after initial release ---
+function addColumnIfMissing(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  const exists = cols.some((c) => c.name === column);
+  if (!exists) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+addColumnIfMissing('shops', 'upi_id', 'TEXT');
+addColumnIfMissing('shops', 'upi_payee_name', 'TEXT');
+addColumnIfMissing('orders', 'payment_method', "TEXT NOT NULL DEFAULT 'cod'");
+addColumnIfMissing('orders', 'payment_status', "TEXT NOT NULL DEFAULT 'pending'");
 
 module.exports = db;

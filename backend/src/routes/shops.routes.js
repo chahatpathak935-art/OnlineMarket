@@ -67,23 +67,22 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
   res.status(201).json({ shop });
 });
 
-router.patch('/:id/status', requireAuth, requireRole('admin'), (req, res) => {
-  const { is_active } = req.body;
-  const shop = db.prepare('SELECT * FROM shops WHERE id = ?').get(req.params.id);
-  if (!shop) return res.status(404).json({ error: 'Shop not found' });
+router.patch('/mine/detail', requireAuth, requireRole('shop_owner'), (req, res) => {
+  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+  if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
 
-  db.prepare('UPDATE shops SET is_active = ? WHERE id = ?').run(is_active ? 1 : 0, shop.id);
+  const { description, address, category, upi_id, upi_payee_name } = req.body;
+  db.prepare(
+    `UPDATE shops SET
+      description = COALESCE(?, description),
+      address = COALESCE(?, address),
+      category = COALESCE(?, category),
+      upi_id = COALESCE(?, upi_id),
+      upi_payee_name = COALESCE(?, upi_payee_name)
+     WHERE id = ?`
+  ).run(description ?? null, address ?? null, category ?? null, upi_id ?? null, upi_payee_name ?? null, shop.id);
+
   res.json({ shop: db.prepare('SELECT * FROM shops WHERE id = ?').get(shop.id) });
-});
-
-router.get('/admin/all', requireAuth, requireRole('admin'), (req, res) => {
-  const shops = db
-    .prepare(
-      `SELECT s.*, u.name AS owner_name, u.email AS owner_email FROM shops s
-       JOIN users u ON u.id = s.owner_id ORDER BY s.created_at DESC`
-    )
-    .all();
-  res.json({ shops });
 });
 
 // ---------- Shop owner: view / update own shop ----------

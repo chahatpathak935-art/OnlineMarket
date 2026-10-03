@@ -78,6 +78,16 @@ email on the Admin → Shops page.
    pickup** → Claim → Mark picked up → Mark delivered. The delivery fee lands in **Earnings**.
 8. The customer can watch the status change live on **My orders**.
 
+## OTP verification (registration, login, forgot password)
+
+Every sign-up, login and password reset needs a 6-digit code sent by email.
+
+- **Local dev**: leave `SMTP_HOST` empty in `backend/.env`. The code is printed in the backend console as `[DEV OTP] ...`.
+- **Production**: set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (any SMTP provider: Brevo, SES, Gmail app password, etc.).
+- Codes are stored hashed, expire after 5 minutes, allow 5 wrong tries, are single-use, and can be resent every 30 seconds (max 6 per hour).
+- **Admin**: the admin also logs in with a code, so seed with a real inbox: `ADMIN_EMAIL=you@example.com npm run seed`.
+- After pulling these changes run `npm install` in `backend/` (adds `nodemailer` and `express-rate-limit`).
+
 ## Deploying for real
 
 - **Backend**: any Node host works (Railway, Render, a VPS, etc.). Set real values for

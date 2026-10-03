@@ -1,9 +1,11 @@
 // Seeds one admin account so you can log in and start adding real shops.
 // Run with: npm run seed
+require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 
-const ADMIN_EMAIL = 'admin@mandimarket.local';
+// Set ADMIN_EMAIL to a real inbox you control: admin logins now need an emailed OTP.
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@mandimarket.local').toLowerCase();
 const ADMIN_PASSWORD = 'Admin@12345';
 
 const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(ADMIN_EMAIL);

@@ -3,6 +3,7 @@ import api from '../../api.js';
 import { getSocket } from '../../socket.js';
 import StatusBadge from '../../components/StatusBadge.jsx';
 import { EmptyState, ErrorBanner } from '../../components/Feedback.jsx';
+import OrderMap from '../../components/OrderMap.jsx';
 
 export default function DeliveryDashboard() {
   const [pool, setPool] = useState([]);
@@ -84,17 +85,26 @@ export default function DeliveryDashboard() {
                   </div>
                   <StatusBadge status={o.status} />
                 </div>
-                <div className="flex items-center justify-between mt-4">
-                  <span className="text-sm text-ink/60">Earning on this delivery: ₹{o.delivery_fee}</span>
-                  <button className="btn-accent !py-1.5" disabled={busyId === o.id} onClick={() => advance(o)}>
-                    {busyId === o.id
-                      ? 'Updating…'
-                      : o.status === 'assigned'
-                      ? 'Mark picked up'
-                      : 'Mark delivered'}
-                  </button>
+                                  <div className="flex items-center justify-between mt-4">
+                    <span className="text-sm text-ink/60">Earning on this delivery: ₹{o.delivery_fee}</span>
+                    <button className="btn-accent !py-1.5" disabled={busyId === o.id} onClick={() => advance(o)}>
+                      {busyId === o.id
+                        ? 'Updating…'
+                        : o.status === 'assigned'
+                        ? 'Mark picked up'
+                        : 'Mark delivered'}
+                    </button>
+                  </div>
+                  <div className="mt-3">
+                    <OrderMap
+                      shopLat={o.shop_latitude}
+                      shopLng={o.shop_longitude}
+                      customerLat={o.delivery_latitude}
+                      customerLng={o.delivery_longitude}
+                      height={200}
+                    />
+                  </div>
                 </div>
-              </div>
             ))}
           </div>
         )}

@@ -98,7 +98,8 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
 router.get('/mine', requireAuth, requireRole('customer'), (req, res) => {
   const orders = db
     .prepare(
-      `SELECT o.*, s.name AS shop_name FROM orders o JOIN shops s ON s.id = o.shop_id
+      `SELECT o.*, s.name AS shop_name, s.latitude AS shop_latitude, s.longitude AS shop_longitude
+       FROM orders o JOIN shops s ON s.id = o.shop_id
        WHERE o.customer_id = ? ORDER BY o.created_at DESC`
     )
     .all(req.user.id);
@@ -251,7 +252,8 @@ router.get('/delivery/pool', requireAuth, requireRole('delivery_boy'), (req, res
 router.get('/delivery/mine', requireAuth, requireRole('delivery_boy'), (req, res) => {
   const orders = db
     .prepare(
-      `SELECT o.*, s.name AS shop_name, s.address AS shop_address FROM orders o JOIN shops s ON s.id = o.shop_id
+      `SELECT o.*, s.name AS shop_name, s.address AS shop_address, s.latitude AS shop_latitude, s.longitude AS shop_longitude
+       FROM orders o JOIN shops s ON s.id = o.shop_id
        WHERE o.delivery_boy_id = ? ORDER BY o.created_at DESC`
     )
     .all(req.user.id);

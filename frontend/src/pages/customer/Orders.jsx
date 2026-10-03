@@ -65,15 +65,26 @@ export default function Orders() {
                 </div>
                 <StatusBadge status={o.status} />
               </div>
-              <div className="flex items-center justify-between mt-3 text-sm">
-                <span className="text-ink/60">Total: ₹{o.grand_total}</span>
-                {o.status === 'placed' && (
-                  <button className="btn-danger !py-1 !px-3" onClick={() => cancelOrder(o.id)}>
-                    Cancel order
-                  </button>
-                )}
-              </div>
-            </div>
+                                <div className="flex items-center justify-between mt-3 text-sm">
+                    <span className="text-ink/60">Total: ₹{o.grand_total}</span>
+                    {o.status === 'placed' && (
+                      <button className="btn-danger !py-1 !px-3" onClick={() => cancelOrder(o.id)}>
+                        Cancel order
+                      </button>
+                    )}
+                  </div>
+                  {o.status !== 'cancelled' && (
+                    <div className="mt-3">
+                      <OrderMap
+                        shopLat={o.shop_latitude}
+                        shopLng={o.shop_longitude}
+                        customerLat={o.delivery_latitude}
+                        customerLng={o.delivery_longitude}
+                        height={200}
+                      />
+                    </div>
+                  )}
+                </div>
           ))}
         </div>
       )}

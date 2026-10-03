@@ -103,4 +103,26 @@ addColumnIfMissing('shops', 'upi_payee_name', 'TEXT');
 addColumnIfMissing('orders', 'payment_method', "TEXT NOT NULL DEFAULT 'cod'");
 addColumnIfMissing('orders', 'payment_status', "TEXT NOT NULL DEFAULT 'pending'");
 
+// --- OTP codes (registration, login, password reset) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS otps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  identifier TEXT NOT NULL,
+  purpose TEXT NOT NULL CHECK (purpose IN ('register','login','reset')),
+  code_hash TEXT NOT NULL,
+  payload TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS otp_sends (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  identifier TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_otps_lookup ON otps(identifier, purpose);
+CREATE INDEX IF NOT EXISTS idx_otp_sends_lookup ON otp_sends(identifier, purpose, created_at);
+`);
+
 module.exports = db;

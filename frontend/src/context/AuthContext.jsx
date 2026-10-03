@@ -26,20 +26,33 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function login(email, password) {
-    const res = await api.post('/auth/login', { email, password });
-    localStorage.setItem('mandi_token', res.data.token);
-    setUser(res.data.user);
-    connectSocket(res.data.token);
-    return res.data.user;
+  function startSession(data) {
+    localStorage.setItem('mandi_token', data.token);
+    setUser(data.user);
+    connectSocket(data.token);
+    return data.user;
   }
 
-  async function register(payload) {
-    const res = await api.post('/auth/register', payload);
-    localStorage.setItem('mandi_token', res.data.token);
-    setUser(res.data.user);
-    connectSocket(res.data.token);
-    return res.data.user;
+  // Login is two steps: password check (emails a code), then code check (issues the token).
+  async function requestLoginOtp(email, password) {
+    const res = await api.post('/auth/login/request', { email, password });
+    return res.data;
+  }
+
+  async function verifyLoginOtp(email, otp) {
+    const res = await api.post('/auth/login/verify', { email, otp });
+    return startSession(res.data);
+  }
+
+  // Registration is two steps too: the account is only created once the code is verified.
+  async function requestRegisterOtp(payload) {
+    const res = await api.post('/auth/register/request', payload);
+    return res.data;
+  }
+
+  async function verifyRegisterOtp(email, otp) {
+    const res = await api.post('/auth/register/verify', { email, otp });
+    return startSession(res.data);
   }
 
   function logout() {
@@ -49,7 +62,15 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{
+        user,
+        loading,
+        requestLoginOtp,
+        verifyLoginOtp,
+        requestRegisterOtp,
+        verifyRegisterOtp,
+        logout,
+      }}>
       {children}
     </AuthContext.Provider>
   );

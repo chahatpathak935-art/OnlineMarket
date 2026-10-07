@@ -6,15 +6,11 @@ const { getIo } = require('../sockets/index');
 const router = express.Router();
 const DELIVERY_FEE = Number(process.env.PLATFORM_DELIVERY_FEE || 30);
 
-function orderWithItems(orderId) {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+async function orderWithItems(orderId) {
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) return null;
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
+  const items = await db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
   return { ...order, items };
-}
-
-function touch(orderId) {
-  db.prepare("UPDATE orders SET updated_at = datetime('now') WHERE id = ?").run(orderId);
 }
 
 function safeEmit(event, room, payload) {
@@ -26,7 +22,7 @@ function safeEmit(event, room, payload) {
 }
 
 // ---------- Customer: place an order (single shop per order) ----------
-router.post('/', requireAuth, requireRole('customer'), (req, res) => {
+router.post('/', requireAuth, requireRole('customer'), async (req, res) => {
   const { shop_id, items, delivery_address, delivery_latitude, delivery_longitude, customer_note, payment_method } = req.body;
 
   if (!shop_id || !Array.isArray(items) || items.length === 0 || !delivery_address) {
@@ -35,19 +31,19 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
 
   const method = payment_method === 'online' ? 'online' : 'cod';
 
-  const shop = db.prepare('SELECT * FROM shops WHERE id = ? AND is_active = 1').get(shop_id);
+  const shop = await db.prepare('SELECT * FROM shops WHERE id = ? AND is_active = 1').get(shop_id);
   if (!shop) return res.status(404).json({ error: 'Shop not found or not active' });
 
   if (method === 'online' && !shop.upi_id) {
     return res.status(400).json({ error: 'This shop has not set up online payment yet. Please choose Cash on Delivery.' });
   }
 
-  const placeOrder = db.transaction(() => {
+  const placeOrder = db.transaction(async () => {
     let itemsTotal = 0;
     const resolvedItems = [];
 
     for (const line of items) {
-      const product = db
+      const product = await db
         .prepare('SELECT * FROM products WHERE id = ? AND shop_id = ? AND is_active = 1')
         .get(line.product_id, shop_id);
       if (!product) throw new Error(`Product ${line.product_id} is not available in this shop`);
@@ -61,7 +57,7 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
 
     const grandTotal = itemsTotal + DELIVERY_FEE;
 
-    const orderInfo = db
+    const orderInfo = await db
       .prepare(
         `INSERT INTO orders
           (customer_id, shop_id, status, items_total, delivery_fee, grand_total, delivery_address, delivery_latitude, delivery_longitude, customer_note, payment_method, payment_status)
@@ -72,11 +68,11 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
     const orderId = orderInfo.lastInsertRowid;
 
     for (const { product, qty } of resolvedItems) {
-      db.prepare(
-        `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity) VALUES (?, ?, ?, ?, ?)`
-      ).run(orderId, product.id, product.name, product.price, qty);
+      await db
+        .prepare(`INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity) VALUES (?, ?, ?, ?, ?)`)
+        .run(orderId, product.id, product.name, product.price, qty);
 
-      db.prepare('UPDATE products SET quantity = quantity - ? WHERE id = ?').run(qty, product.id);
+      await db.prepare('UPDATE products SET quantity = quantity - ? WHERE id = ?').run(qty, product.id);
     }
 
     return orderId;
@@ -84,19 +80,19 @@ router.post('/', requireAuth, requireRole('customer'), (req, res) => {
 
   let orderId;
   try {
-    orderId = placeOrder();
+    orderId = await placeOrder();
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
 
-  const order = orderWithItems(orderId);
+  const order = await orderWithItems(orderId);
   safeEmit('new_order', `shop_${shop_id}`, order);
   res.status(201).json({ order, shop_upi_id: shop.upi_id, shop_upi_payee_name: shop.upi_payee_name || shop.name });
 });
 
 // ---------- Customer: my orders / cancel while still unaccepted ----------
-router.get('/mine', requireAuth, requireRole('customer'), (req, res) => {
-  const orders = db
+router.get('/mine', requireAuth, requireRole('customer'), async (req, res) => {
+  const orders = await db
     .prepare(
       `SELECT o.*, s.name AS shop_name, s.latitude AS shop_latitude, s.longitude AS shop_longitude
        FROM orders o JOIN shops s ON s.id = o.shop_id
@@ -106,8 +102,8 @@ router.get('/mine', requireAuth, requireRole('customer'), (req, res) => {
   res.json({ orders });
 });
 
-router.patch('/:id/mark-paid', requireAuth, requireRole('customer'), (req, res) => {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND customer_id = ?').get(req.params.id, req.user.id);
+router.patch('/:id/mark-paid', requireAuth, requireRole('customer'), async (req, res) => {
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND customer_id = ?').get(req.params.id, req.user.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (order.payment_method !== 'online') {
     return res.status(400).json({ error: 'This order is Cash on Delivery, no online payment to confirm' });
@@ -116,55 +112,55 @@ router.patch('/:id/mark-paid', requireAuth, requireRole('customer'), (req, res) 
     return res.status(400).json({ error: `Payment is already marked as ${order.payment_status}` });
   }
 
-  db.prepare("UPDATE orders SET payment_status = 'claimed_paid', updated_at = datetime('now') WHERE id = ?").run(order.id);
-  const updated = orderWithItems(order.id);
+  await db.prepare("UPDATE orders SET payment_status = 'claimed_paid', updated_at = NOW() WHERE id = ?").run(order.id);
+  const updated = await orderWithItems(order.id);
   safeEmit('order_status_changed', `shop_${order.shop_id}`, updated);
   res.json({ order: updated });
 });
 
-router.patch('/:id/confirm-payment', requireAuth, requireRole('shop_owner'), (req, res) => {
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+router.patch('/:id/confirm-payment', requireAuth, requireRole('shop_owner'), async (req, res) => {
+  const shop = await db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
   if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
   if (!order) return res.status(404).json({ error: 'Order not found in your shop' });
   if (order.payment_status !== 'claimed_paid') {
     return res.status(400).json({ error: 'Customer has not claimed payment for this order yet' });
   }
 
-  db.prepare("UPDATE orders SET payment_status = 'confirmed', updated_at = datetime('now') WHERE id = ?").run(order.id);
-  const updated = orderWithItems(order.id);
+  await db.prepare("UPDATE orders SET payment_status = 'confirmed', updated_at = NOW() WHERE id = ?").run(order.id);
+  const updated = await orderWithItems(order.id);
   safeEmit('order_status_changed', `user_${order.customer_id}`, updated);
   res.json({ order: updated });
 });
 
-router.patch('/:id/cancel', requireAuth, requireRole('customer'), (req, res) => {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND customer_id = ?').get(req.params.id, req.user.id);
+router.patch('/:id/cancel', requireAuth, requireRole('customer'), async (req, res) => {
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND customer_id = ?').get(req.params.id, req.user.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (order.status !== 'placed') {
     return res.status(400).json({ error: 'Order can only be cancelled before the shop accepts it' });
   }
 
-  const cancel = db.transaction(() => {
-    const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
+  const cancel = db.transaction(async () => {
+    const items = await db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
     for (const item of items) {
-      db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(item.quantity, item.product_id);
+      await db.prepare('UPDATE products SET quantity = quantity + ? WHERE id = ?').run(item.quantity, item.product_id);
     }
-    db.prepare("UPDATE orders SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(order.id);
+    await db.prepare("UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = ?").run(order.id);
   });
-  cancel();
+  await cancel();
 
-  const updated = orderWithItems(order.id);
+  const updated = await orderWithItems(order.id);
   safeEmit('order_status_changed', `shop_${order.shop_id}`, updated);
   res.json({ order: updated });
 });
 
-// ---------- Shared: fetch one order (customer/shop owner/delivery boy/admin, if related) ----------
-router.get('/:id', requireAuth, (req, res) => {
-  const order = orderWithItems(req.params.id);
+// ---------- Shared: fetch one order ----------
+router.get('/:id', requireAuth, async (req, res) => {
+  const order = await orderWithItems(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
-  const shop = db.prepare('SELECT * FROM shops WHERE id = ?').get(order.shop_id);
+  const shop = await db.prepare('SELECT * FROM shops WHERE id = ?').get(order.shop_id);
   const isOwner = req.user.role === 'shop_owner' && shop.owner_id === req.user.id;
   const isCustomer = req.user.role === 'customer' && order.customer_id === req.user.id;
   const isDeliveryBoy = req.user.role === 'delivery_boy' && order.delivery_boy_id === req.user.id;
@@ -178,11 +174,11 @@ router.get('/:id', requireAuth, (req, res) => {
 });
 
 // ---------- Shop owner: incoming orders + accept + pack ----------
-router.get('/shop/incoming', requireAuth, requireRole('shop_owner'), (req, res) => {
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+router.get('/shop/incoming', requireAuth, requireRole('shop_owner'), async (req, res) => {
+  const shop = await db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
   if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
 
-  const orders = db
+  const orders = await db
     .prepare(
       `SELECT * FROM orders WHERE shop_id = ? AND status IN ('placed','accepted','packed','assigned','picked_up')
        ORDER BY created_at ASC`
@@ -191,28 +187,28 @@ router.get('/shop/incoming', requireAuth, requireRole('shop_owner'), (req, res) 
   res.json({ orders });
 });
 
-router.get('/shop/history', requireAuth, requireRole('shop_owner'), (req, res) => {
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+router.get('/shop/history', requireAuth, requireRole('shop_owner'), async (req, res) => {
+  const shop = await db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
   if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
 
-  const orders = db
+  const orders = await db
     .prepare(`SELECT * FROM orders WHERE shop_id = ? AND status IN ('delivered','cancelled') ORDER BY created_at DESC`)
     .all(shop.id);
   res.json({ orders });
 });
 
-function shopOwnerTransition(req, res, fromStatuses, toStatus, extraEvent) {
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+async function shopOwnerTransition(req, res, fromStatuses, toStatus, extraEvent) {
+  const shop = await db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
   if (!shop) return res.status(404).json({ error: 'No shop assigned to this account' });
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
   if (!order) return res.status(404).json({ error: 'Order not found in your shop' });
   if (!fromStatuses.includes(order.status)) {
     return res.status(400).json({ error: `Order must be in status ${fromStatuses.join('/')} for this action` });
   }
 
-  db.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?").run(toStatus, order.id);
-  const updated = orderWithItems(order.id);
+  await db.prepare('UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?').run(toStatus, order.id);
+  const updated = await orderWithItems(order.id);
 
   safeEmit('order_status_changed', `user_${order.customer_id}`, updated);
   safeEmit('order_status_changed', `shop_${shop.id}`, updated);
@@ -221,25 +217,24 @@ function shopOwnerTransition(req, res, fromStatuses, toStatus, extraEvent) {
   res.json({ order: updated });
 }
 
-router.patch('/:id/accept', requireAuth, requireRole('shop_owner'), (req, res) => {
-  shopOwnerTransition(req, res, ['placed'], 'accepted');
+router.patch('/:id/accept', requireAuth, requireRole('shop_owner'), async (req, res) => {
+  await shopOwnerTransition(req, res, ['placed'], 'accepted');
 });
 
-router.patch('/:id/pack', requireAuth, requireRole('shop_owner'), (req, res) => {
-  const shop = db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
+router.patch('/:id/pack', requireAuth, requireRole('shop_owner'), async (req, res) => {
+  const shop = await db.prepare('SELECT * FROM shops WHERE owner_id = ?').get(req.user.id);
   if (shop) {
-    const order = db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
+    const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND shop_id = ?').get(req.params.id, shop.id);
     if (order && order.payment_method === 'online' && order.payment_status !== 'confirmed') {
       return res.status(400).json({ error: 'Please confirm you have received the UPI payment before packing this order' });
     }
   }
-  // Once packed, the order becomes visible to the delivery pool for pickup.
-  shopOwnerTransition(req, res, ['accepted'], 'packed', { name: 'order_available_for_pickup', room: 'delivery_pool' });
+  await shopOwnerTransition(req, res, ['accepted'], 'packed', { name: 'order_available_for_pickup', room: 'delivery_pool' });
 });
 
-// ---------- Delivery boy: pool of packed orders + claim + pickup + deliver ----------
-router.get('/delivery/pool', requireAuth, requireRole('delivery_boy'), (req, res) => {
-  const orders = db
+// ---------- Delivery boy ----------
+router.get('/delivery/pool', requireAuth, requireRole('delivery_boy'), async (req, res) => {
+  const orders = await db
     .prepare(
       `SELECT o.*, s.name AS shop_name, s.address AS shop_address, s.latitude AS shop_latitude, s.longitude AS shop_longitude
        FROM orders o JOIN shops s ON s.id = o.shop_id
@@ -249,8 +244,8 @@ router.get('/delivery/pool', requireAuth, requireRole('delivery_boy'), (req, res
   res.json({ orders });
 });
 
-router.get('/delivery/mine', requireAuth, requireRole('delivery_boy'), (req, res) => {
-  const orders = db
+router.get('/delivery/mine', requireAuth, requireRole('delivery_boy'), async (req, res) => {
+  const orders = await db
     .prepare(
       `SELECT o.*, s.name AS shop_name, s.address AS shop_address, s.latitude AS shop_latitude, s.longitude AS shop_longitude
        FROM orders o JOIN shops s ON s.id = o.shop_id
@@ -260,62 +255,64 @@ router.get('/delivery/mine', requireAuth, requireRole('delivery_boy'), (req, res
   res.json({ orders });
 });
 
-router.patch('/:id/claim', requireAuth, requireRole('delivery_boy'), (req, res) => {
-  const order = db.prepare("SELECT * FROM orders WHERE id = ? AND status = 'packed'").get(req.params.id);
+router.patch('/:id/claim', requireAuth, requireRole('delivery_boy'), async (req, res) => {
+  const order = await db.prepare("SELECT * FROM orders WHERE id = ? AND status = 'packed'").get(req.params.id);
   if (!order) return res.status(409).json({ error: 'This order is no longer available for pickup (already claimed or not packed yet)' });
 
-  const claim = db.transaction(() => {
-    const stillAvailable = db.prepare("SELECT id FROM orders WHERE id = ? AND status = 'packed'").get(order.id);
+  const claim = db.transaction(async () => {
+    const stillAvailable = await db.prepare("SELECT id FROM orders WHERE id = ? AND status = 'packed'").get(order.id);
     if (!stillAvailable) throw new Error('ALREADY_CLAIMED');
-    db.prepare("UPDATE orders SET status = 'assigned', delivery_boy_id = ?, updated_at = datetime('now') WHERE id = ?")
+    await db
+      .prepare("UPDATE orders SET status = 'assigned', delivery_boy_id = ?, updated_at = NOW() WHERE id = ?")
       .run(req.user.id, order.id);
   });
 
   try {
-    claim();
+    await claim();
   } catch (err) {
     return res.status(409).json({ error: 'This order was just claimed by another delivery partner' });
   }
 
-  const updated = orderWithItems(order.id);
+  const updated = await orderWithItems(order.id);
   safeEmit('order_status_changed', `user_${order.customer_id}`, updated);
   safeEmit('order_status_changed', `shop_${order.shop_id}`, updated);
   safeEmit('order_claimed', 'delivery_pool', { orderId: order.id });
   res.json({ order: updated });
 });
 
-router.patch('/:id/picked-up', requireAuth, requireRole('delivery_boy'), (req, res) => {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND delivery_boy_id = ?').get(req.params.id, req.user.id);
+router.patch('/:id/picked-up', requireAuth, requireRole('delivery_boy'), async (req, res) => {
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND delivery_boy_id = ?').get(req.params.id, req.user.id);
   if (!order) return res.status(404).json({ error: 'Order not found or not assigned to you' });
   if (order.status !== 'assigned') return res.status(400).json({ error: 'Order must be assigned before pickup' });
 
-  db.prepare("UPDATE orders SET status = 'picked_up', updated_at = datetime('now') WHERE id = ?").run(order.id);
-  const updated = orderWithItems(order.id);
+  await db.prepare("UPDATE orders SET status = 'picked_up', updated_at = NOW() WHERE id = ?").run(order.id);
+  const updated = await orderWithItems(order.id);
   safeEmit('order_status_changed', `user_${order.customer_id}`, updated);
   safeEmit('order_status_changed', `shop_${order.shop_id}`, updated);
   res.json({ order: updated });
 });
 
-router.patch('/:id/delivered', requireAuth, requireRole('delivery_boy'), (req, res) => {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND delivery_boy_id = ?').get(req.params.id, req.user.id);
+router.patch('/:id/delivered', requireAuth, requireRole('delivery_boy'), async (req, res) => {
+  const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND delivery_boy_id = ?').get(req.params.id, req.user.id);
   if (!order) return res.status(404).json({ error: 'Order not found or not assigned to you' });
   if (order.status !== 'picked_up') return res.status(400).json({ error: 'Order must be picked up before it can be marked delivered' });
 
-  const finish = db.transaction(() => {
-    db.prepare("UPDATE orders SET status = 'delivered', updated_at = datetime('now') WHERE id = ?").run(order.id);
-    db.prepare('INSERT INTO delivery_earnings (delivery_boy_id, order_id, amount) VALUES (?, ?, ?)')
+  const finish = db.transaction(async () => {
+    await db.prepare("UPDATE orders SET status = 'delivered', updated_at = NOW() WHERE id = ?").run(order.id);
+    await db
+      .prepare('INSERT INTO delivery_earnings (delivery_boy_id, order_id, amount) VALUES (?, ?, ?)')
       .run(req.user.id, order.id, order.delivery_fee);
   });
-  finish();
+  await finish();
 
-  const updated = orderWithItems(order.id);
+  const updated = await orderWithItems(order.id);
   safeEmit('order_status_changed', `user_${order.customer_id}`, updated);
   safeEmit('order_status_changed', `shop_${order.shop_id}`, updated);
   res.json({ order: updated });
 });
 
-router.get('/delivery/earnings', requireAuth, requireRole('delivery_boy'), (req, res) => {
-  const rows = db
+router.get('/delivery/earnings', requireAuth, requireRole('delivery_boy'), async (req, res) => {
+  const rows = await db
     .prepare(
       `SELECT e.*, o.delivery_address FROM delivery_earnings e JOIN orders o ON o.id = e.order_id
        WHERE e.delivery_boy_id = ? ORDER BY e.created_at DESC`
@@ -325,9 +322,9 @@ router.get('/delivery/earnings', requireAuth, requireRole('delivery_boy'), (req,
   res.json({ total, entries: rows });
 });
 
-// ---------- Admin: view everything ----------
-router.get('/admin/all', requireAuth, requireRole('admin'), (req, res) => {
-  const orders = db
+// ---------- Admin ----------
+router.get('/admin/all', requireAuth, requireRole('admin'), async (req, res) => {
+  const orders = await db
     .prepare(
       `SELECT o.*, s.name AS shop_name, c.name AS customer_name, d.name AS delivery_boy_name
        FROM orders o

@@ -13,6 +13,7 @@ const ordersRoutes = require('./routes/orders.routes');
 const adminRoutes = require('./routes/admin.routes');
 
 const app = express();
+app.set('trust proxy', 1);
 const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
 app.use(cors({ origin: corsOrigin }));

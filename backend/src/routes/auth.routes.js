@@ -39,9 +39,9 @@ const handle = (fn) => (req, res, next) =>
     next(err);
   });
 
-// ---------------------------------------------------------------- Registration
+// ---------------------------------------------------------------- Registration (no code)
 router.post(
-  '/register/request',
+  '/register',
   handle(async (req, res) => {
     const { name, password, phone, role } = req.body;
     const email = normEmail(req.body.email);
@@ -60,40 +60,19 @@ router.post(
       return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
-    const passwordHash = bcrypt.hashSync(password, 10);
-    const timing = await sendOtp(email, 'register', {
-      name,
-      email,
-      phone: phone || null,
-      passwordHash,
-      role,
-    });
-    res.json({ message: 'Verification code sent to your email', ...timing });
-  })
-);
-
-router.post(
-  '/register/verify',
-  handle(async (req, res) => {
-    const email = normEmail(req.body.email);
-    const payload = await verifyOtp(email, 'register', req.body.otp);
-    if (!payload) return res.status(400).json({ error: INVALID_CODE });
-
-    if (await db.prepare('SELECT id FROM users WHERE email = ?').get(email)) {
-      return res.status(409).json({ error: 'An account with this email already exists' });
-    }
+    const hash = bcrypt.hashSync(password, 10);
     const info = await db
       .prepare('INSERT INTO users (name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?)')
-      .run(payload.name, payload.email, payload.phone, payload.passwordHash, payload.role);
+      .run(name, email, phone || null, hash, role);
 
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json({ token: signToken(user), user: publicUser(user) });
   })
 );
 
-// ----------------------------------------------------------------------- Login
+// ---------------------------------------------------------------- Login (no code)
 router.post(
-  '/login/request',
+  '/login',
   handle(async (req, res) => {
     const email = normEmail(req.body.email);
     const { password } = req.body;
@@ -105,27 +84,12 @@ router.post(
     }
     if (!user.is_active) return res.status(403).json({ error: 'This account has been deactivated' });
 
-    const timing = await sendOtp(email, 'login');
-    res.json({ message: 'Login code sent to your email', ...timing });
-  })
-);
-
-router.post(
-  '/login/verify',
-  handle(async (req, res) => {
-    const email = normEmail(req.body.email);
-    if (!(await verifyOtp(email, 'login', req.body.otp))) {
-      return res.status(400).json({ error: INVALID_CODE });
-    }
-    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
-    if (!user.is_active) return res.status(403).json({ error: 'This account has been deactivated' });
-
     res.json({ token: signToken(user), user: publicUser(user) });
   })
 );
 
-// -------------------------------------------------------------- Forgot password
+// ---------------------------------------------------------------- Forgot password (code by email)
+// Always answers 200 so the response never reveals whether an email is registered.
 router.post(
   '/forgot/request',
   handle(async (req, res) => {
@@ -165,10 +129,14 @@ router.post(
   })
 );
 
-router.get('/me', requireAuth, async (req, res) => {
-  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ user: publicUser(user) });
-});
+router.get(
+  '/me',
+  requireAuth,
+  handle(async (req, res) => {
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: publicUser(user) });
+  })
+);
 
 module.exports = router;

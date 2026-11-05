@@ -33,25 +33,13 @@ export function AuthProvider({ children }) {
     return data.user;
   }
 
-  // Login is two steps: password check (emails a code), then code check (issues the token).
-  async function requestLoginOtp(email, password) {
-    const res = await api.post('/auth/login/request', { email, password });
-    return res.data;
-  }
-
-  async function verifyLoginOtp(email, otp) {
-    const res = await api.post('/auth/login/verify', { email, otp });
+  async function login(email, password) {
+    const res = await api.post('/auth/login', { email, password });
     return startSession(res.data);
   }
 
-  // Registration is two steps too: the account is only created once the code is verified.
-  async function requestRegisterOtp(payload) {
-    const res = await api.post('/auth/register/request', payload);
-    return res.data;
-  }
-
-  async function verifyRegisterOtp(email, otp) {
-    const res = await api.post('/auth/register/verify', { email, otp });
+  async function register(payload) {
+    const res = await api.post('/auth/register', payload);
     return startSession(res.data);
   }
 
@@ -62,15 +50,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{
-        user,
-        loading,
-        requestLoginOtp,
-        verifyLoginOtp,
-        requestRegisterOtp,
-        verifyRegisterOtp,
-        logout,
-      }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

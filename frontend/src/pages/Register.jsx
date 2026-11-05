@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ErrorBanner } from '../components/Feedback.jsx';
-import OtpStep from '../components/OtpStep.jsx';
 
 const ROLE_HOME = {
   customer: '/shops',
@@ -17,11 +16,9 @@ const ROLES = [
 ];
 
 export default function Register() {
-  const { requestRegisterOtp, verifyRegisterOtp } = useAuth();
+  const { register } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', role: 'customer' });
-  const [step, setStep] = useState('form'); // 'form' | 'otp'
-  const [resendIn, setResendIn] = useState(30);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -34,9 +31,8 @@ export default function Register() {
     setError('');
     setBusy(true);
     try {
-      const data = await requestRegisterOtp(form);
-      setResendIn(data.resendInSeconds || 30);
-      setStep('otp');
+      const user = await register(form);
+      navigate(ROLE_HOME[user.role] || '/');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -44,43 +40,11 @@ export default function Register() {
     }
   }
 
-  async function handleOtp(code) {
-    if (busy) return;
-    setError('');
-    setBusy(true);
-    try {
-      const user = await verifyRegisterOtp(form.email, code);
-      navigate(ROLE_HOME[user.role] || '/');
-    } catch (err) {
-      setError(err.message);
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="max-w-md mx-auto px-5 py-16">
-      <h1 className="font-display text-3xl mb-1">{step === 'otp' ? 'Verify your email' : 'Create an account'}</h1>
-      <p className="text-ink/60 mb-6">
-        {step === 'otp' ? 'Your account is created once you enter the code.' : "Choose how you'll use Mandi Market."}
-      </p>
+      <h1 className="font-display text-3xl mb-1">Create an account</h1>
+      <p className="text-ink/60 mb-6">Choose how you'll use Mandi Market.</p>
 
-      {step === 'otp' ? (
-        <div className="card">
-          <OtpStep
-            email={form.email}
-            resendIn={resendIn}
-            busy={busy}
-            error={error}
-            submitLabel="Verify and create account"
-            onSubmit={handleOtp}
-            onResend={() => requestRegisterOtp(form)}
-            onBack={() => {
-              setError('');
-              setStep('form');
-            }}
-          />
-        </div>
-      ) : (
       <form onSubmit={handleSubmit} className="card space-y-4">
         <ErrorBanner message={error} />
 
@@ -118,6 +82,7 @@ export default function Register() {
         <div>
           <label className="label">Email</label>
           <input className="input" type="email" required value={form.email} onChange={(e) => update('email', e.target.value)} />
+          <p className="text-xs text-ink/50 mt-1">Use an email you can open. We send a code to it if you ever forget your password.</p>
         </div>
         <div>
           <label className="label">Phone</label>
@@ -143,10 +108,9 @@ export default function Register() {
         )}
 
         <button className="btn-primary w-full" disabled={busy} type="submit">
-          {busy ? 'Sending code…' : 'Continue'}
+          {busy ? 'Creating account…' : 'Create account'}
         </button>
       </form>
-      )}
 
       <p className="text-sm text-ink/60 mt-4">
         Already have an account? <Link to="/login" className="text-brick font-medium">Log in</Link>
